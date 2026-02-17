@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import * as d3 from "d3";
-  import { onMounted, ref, watch, computed } from "vue";
+  import { onMounted, onUnmounted, ref, watch, computed } from "vue";
   import type { DerivationGraph, Node } from "../types/types";
 
   const props = defineProps<{ graph: DerivationGraph }>();
@@ -13,6 +13,40 @@
   let zoomLayer: d3.Selection<SVGGElement, unknown, null, undefined>;
   let nodePositions = new Map<number, { x: number; y: number }>();
 
+  const sidebarWidth = ref(384);
+  const isResizing = ref(false);
+  const isSidepaneFullScreen = ref(false);
+
+  function toggleFullScreen() {
+    isSidepaneFullScreen.value = !isSidepaneFullScreen.value;
+  }
+
+  function startResize() {
+    isResizing.value = true;
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", stopResize);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }
+
+  function handleMouseMove(e: MouseEvent) {
+    if (!isResizing.value) return;
+    const newWidth = window.innerWidth - e.clientX;
+    if (newWidth > 200 && newWidth < window.innerWidth * 0.9) {
+      sidebarWidth.value = newWidth;
+    }
+  }
+
+  function stopResize() {
+    isResizing.value = false;
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", stopResize);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  }
+
+  onUnmounted(() => stopResize());
+
   /* ---------- Derived data ---------- */
   const selectedNode = computed(() =>
     props.graph.nodes.find(n => n.id === selectedNodeId.value) ?? null
@@ -20,11 +54,8 @@
 
   const parentNode = computed(() => {
     if (!selectedNode.value) return null;
-    // TODO: unsafe
-    const link = props.graph.links.find(l => l.target === selectedNode.value!.id);
-    return link
-      ? props.graph.nodes.find(n => n.id === link.source) ?? null
-      : null;
+    const link = props.graph.links.find(l => l.target === selectedNode.value.id);
+    return link ? props.graph.nodes.find(n => n.id === link.source) ?? null : null;
   });
 
   const childNodes = computed(() => {
@@ -35,50 +66,31 @@
       .filter(Boolean) as Node[];
   });
 
-  const siblingNodes = computed(() => {
-    if (!parentNode.value || !selectedNode.value) return [];
-    return props.graph.links
-      .filter(
-        l =>
-          l.source === parentNode.value!.id && // TODO: unsafe
-          l.target !== selectedNode.value!.id // TODO: unsafe
-      )
-      .map(l => props.graph.nodes.find(n => n.id === l.target))
-      .filter(Boolean) as Node[];
-  });
-
-  /* ---------- Search ---------- */
   const searchResults = computed(() => {
     if (!searchQuery.value) return [];
     const q = Number(searchQuery.value);
-    if (Number.isNaN(q)) return [];
-    return props.graph.nodes.filter(n => n.id === q);
+    return isNaN(q) ? [] : props.graph.nodes.filter(n => n.id === q);
   });
 
   /* ---------- Graph rendering ---------- */
   function renderGraph(graph: DerivationGraph) {
     if (!svgRef.value) return;
 
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = svgRef.value.clientWidth || window.innerWidth;
+    const height = svgRef.value.clientHeight || window.innerHeight;
 
     d3.select(svgRef.value).selectAll("*").remove();
+    const svg = d3.select(svgRef.value).attr("viewBox", `0 0 ${width} ${height}`);
 
-    const svg = d3
-      .select(svgRef.value)
-      .attr("viewBox", `0 0 ${width} ${height}`);
-
+    // Create the zoom layer WITHOUT a global stroke to keep text crisp
     zoomLayer = svg.append("g");
 
     zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.2, 4])
-      .on("zoom", (event) => {
-        zoomLayer.attr("transform", event.transform);
-      });
+      .scaleExtent([0.01, 4])
+      .on("zoom", (event) => zoomLayer.attr("transform", event.transform));
 
     svg.call(zoomBehavior);
 
-    /* ---------- Hierarchy ---------- */
     const rootNode = d3.stratify<Node>()
       .id(d => d.id.toString())
       .parentId(d => {
@@ -86,19 +98,15 @@
         return parent ? parent.source.toString() : null;
       })(graph.nodes);
 
-    const treeLayout = d3.tree<Node>().nodeSize([180, 110]);
+    const treeLayout = d3.tree<Node>().nodeSize([200, 120]);
     const hierarchyRoot = treeLayout(rootNode);
 
-    /* ---------- Store positions ---------- */
     nodePositions.clear();
-    hierarchyRoot.descendants().forEach(d => {
-      nodePositions.set(d.data.id, { x: d.x, y: d.y });
-    });
+    hierarchyRoot.descendants().forEach(d => nodePositions.set(d.data.id, { x: d.x, y: d.y }));
 
-    /* ---------- Links ---------- */
     zoomLayer.append("g")
-      .attr("stroke", "#cbd5e1")
-      .attr("stroke-width", 1.5)
+      .attr("stroke", "#d1d5db")
+      .attr("stroke-width", 1.2)
       .selectAll("line")
       .data(hierarchyRoot.links())
       .enter()
@@ -108,36 +116,33 @@
       .attr("x2", d => d.target.x)
       .attr("y2", d => d.target.y);
 
-    /* ---------- Nodes ---------- */
     const nodes = zoomLayer.append("g")
       .selectAll("g")
       .data(hierarchyRoot.descendants())
       .enter()
       .append("g")
       .attr("transform", d => `translate(${d.x}, ${d.y})`)
-      .style("cursor", "pointer")
       .on("click", (_, d) => selectNode(d.data.id));
 
     nodes.append("rect")
-      .attr("x", -80)
+      .attr("x", -85)
       .attr("y", -20)
-      .attr("width", 160)
+      .attr("width", 170)
       .attr("height", 40)
-      .attr("rx", 6)
-      .attr("fill", d =>
-        d.data.id === selectedNodeId.value ? "#e0f2fe" : "#f8fafc"
-      )
-      .attr("stroke", "#94a3b8");
+      .attr("rx", 2)
+      .attr("fill", d => d.data.id === selectedNodeId.value ? "#f3f0f7" : "#ffffff")
+      .attr("stroke", d => d.data.id === selectedNodeId.value ? "#5e5184" : "#ccc")
+      .attr("stroke-width", d => (d.data.id === selectedNodeId.value ? 2 : 1));
 
     nodes.append("text")
       .attr("text-anchor", "middle")
       .attr("dominant-baseline", "middle")
       .attr("font-size", 11)
-      .attr("fill", "#0f172a")
+      .attr("fill", "#333") // Clean dark grey text
+      .attr("stroke", "none") // Ensure no stroke makes text blurry
       .text(d => `#${d.data.id}: ${d.data.rule}`);
   }
 
-  /* ---------- Selection + focus ---------- */
   function selectNode(id: number) {
     selectedNodeId.value = id;
     focusNode(id);
@@ -145,137 +150,105 @@
   }
 
   function focusNode(id: number) {
-    if (!svgRef.value) return;
-    const pos = nodePositions.get(id);
-    if (!pos) return;
-
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    if (!svgRef.value || !nodePositions.has(id)) return;
+    const pos = nodePositions.get(id)!;
     const scale = 1.2;
+    const tx = svgRef.value.clientWidth / 2 - pos.x * scale;
+    const ty = svgRef.value.clientHeight / 2 - pos.y * scale;
 
-    const tx = width / 2 - pos.x * scale;
-    const ty = height / 2 - pos.y * scale;
-
-    d3.select(svgRef.value)
-      .transition()
-      .duration(500)
-      .call(
-        zoomBehavior.transform,
-        d3.zoomIdentity.translate(tx, ty).scale(scale)
-      );
+    d3.select(svgRef.value).transition().duration(500)
+      .call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
   }
 
   onMounted(() => renderGraph(props.graph));
   watch(() => props.graph, renderGraph, { deep: true });
-  </script>
+</script>
 
-  <template>
-    <div class="flex w-screen h-screen overflow-hidden">
-      <!-- Graph -->
-      <svg
-        ref="svgRef"
-        class="flex-1 h-full bg-white"
-      />
+<template>
+  <div class="flex w-screen h-screen overflow-hidden relative font-sans text-[#333]">
+    <svg ref="svgRef" class="flex-1 h-full bg-white" />
 
-      <!-- Sidebar -->
-      <aside class="w-96 h-full border-l bg-slate-50 p-4 overflow-y-auto text-sm">
-          <div v-if="selectedNodeId !== null" class="flex text-blue-600 justify-between mb-3">
-            <button :disabled="selectedNodeId === 0" class="cursor-pointer hover:underline disabled:text-slate-400 disabled:hover:no-underline disabled:cursor-not-allowed" @click="selectNode(selectedNodeId - 1)">← Previous node</button>
-            <button :disabled="selectedNodeId === props.graph.nodes.length - 1" class="cursor-pointer hover:underline disabled:text-slate-400 disabled:hover:no-underline disabled:cursor-not-allowed" @click="selectNode(selectedNodeId + 1)">Next node →</button>
-          </div>
-        <!-- Search -->
-        <div class="mb-4">
+    <div
+      v-if="!isSidepaneFullScreen"
+      class="w-1 cursor-col-resize hover:bg-[#5e5184] transition-colors bg-gray-200 z-10 flex-shrink-0"
+      @mousedown="startResize"
+    ></div>
+
+    <aside
+      :style="{ width: isSidepaneFullScreen ? '100vw' : sidebarWidth + 'px' }"
+      class="h-full bg-white border-l border-gray-300 overflow-y-auto flex-shrink-0 transition-all duration-300"
+      :class="{ 'absolute right-0 top-0 z-20 shadow-2xl': isSidepaneFullScreen }"
+    >
+      <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-[#fafafa]">
+        <h1 class="font-bold text-[#5e5184] text-lg tracking-tight">Derivation</h1>
+        <button
+          @click="toggleFullScreen"
+          class="px-3 py-1 bg-white border border-gray-300 hover:border-[#5e5184] hover:text-[#5e5184] rounded text-[10px] font-bold uppercase transition-all shadow-sm"
+        >
+          {{ isSidepaneFullScreen ? 'Exit Full' : 'Full Screen' }}
+        </button>
+      </div>
+
+      <div class="p-6">
+        <div class="mb-8">
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Search node ID…"
-            class="w-full px-3 py-2 border rounded"
+            placeholder="Search by ID..."
+            class="w-full px-3 py-2 border border-gray-300 rounded bg-[#fcfcfc] focus:ring-1 focus:ring-[#5e5184] outline-none"
           />
-          <ul v-if="searchResults.length" class="mt-2">
-            <li
-              v-for="n in searchResults"
-              :key="n.id"
-              class="cursor-pointer text-blue-600 hover:underline"
-              @click="selectNode(n.id)"
-            >
-              #{{ n.id }} — {{ n.rule }}
-            </li>
-          </ul>
         </div>
 
         <div v-if="selectedNode">
-          <h2 class="font-semibold mb-2">
-            Node #{{ selectedNode.id }}
-          </h2>
-
-          <p class="mb-2">
-            <strong>Rule:</strong><br />
-            {{ selectedNode.rule }}
-          </p>
-
-          <p class="mb-2">
-            <strong>Inputs:</strong>
-            <span v-if="selectedNode.inputs.length">
-              {{ selectedNode.inputs.join(", ") }}
-            </span>
-            <span v-else class="text-slate-400">none</span>
-          </p>
-
-          <p class="mb-2">
-            <strong>Outputs:</strong>
-            <span v-if="selectedNode.outputs.length">
-              {{ selectedNode.outputs.join(", ") }}
-            </span>
-            <span v-else class="text-slate-400">none</span>
-          </p>
-
-          <div v-if="parentNode" class="mb-3">
-            <button
-              class="text-blue-600 hover:underline"
-              @click="selectNode(parentNode.id)"
-            >
-              ↑ Go to parent
+          <div class="flex text-[#8f59a1] font-bold text-xs justify-between mb-6">
+            <button :disabled="selectedNodeId === 0" class="hover:underline disabled:opacity-30 cursor-pointer" @click="selectNode(selectedNodeId - 1)">
+              « PREV NODE
+            </button>
+            <button :disabled="selectedNodeId === props.graph.nodes.length - 1" class="hover:underline disabled:opacity-30 cursor-pointer" @click="selectNode(selectedNodeId + 1)">
+              NEXT NODE »
             </button>
           </div>
 
-          <div class="mb-3">
-            <strong>Siblings:</strong>
-            <ul class="list-disc ml-5 mt-1">
-              <li
-                v-for="sib in siblingNodes"
-                :key="sib.id"
-                class="cursor-pointer text-blue-600 hover:underline"
-                @click="selectNode(sib.id)"
-              >
-                #{{ sib.id }} — {{ sib.rule }}
-              </li>
-            </ul>
-            <p v-if="!siblingNodes.length" class="text-slate-400">
-              No siblings
-            </p>
+          <h2 class="font-bold mb-4 text-2xl text-[#5e5184]">
+            Node #{{ selectedNode.id }}
+          </h2>
+
+          <div class="mb-8">
+            <div class="bg-[#f5f5f5] p-4 rounded border border-gray-200">
+              <span class="text-[10px] font-bold text-gray-400 tracking-widest block mb-2">Rule Identifier</span>
+              <code class="text-[#5e5184] font-mono font-bold">{{ selectedNode.rule }}</code>
+            </div>
           </div>
 
-          <div>
-            <strong>Children:</strong>
-            <ul class="list-disc ml-5 mt-1">
-              <li
-                v-for="child in childNodes"
-                :key="child.id"
-                class="cursor-pointer text-blue-600 hover:underline"
-                @click="selectNode(child.id)"
-              >
-                #{{ child.id }} — {{ child.rule }}
-              </li>
-            </ul>
-            <p v-if="!childNodes.length" class="text-slate-400">
-              No children
-            </p>
+          <div v-if="selectedNode.data.length" class="space-y-8">
+            <div v-for="(item, index) in selectedNode.data" :key="index">
+              <h3 class="text-xs font-bold text-[#5e5184] border-b border-gray-100 pb-1 mb-3 tracking-wider">
+                {{ item.label }}
+              </h3>
+              <pre class="p-4 bg-[#f8f8f8] rounded text-sm font-mono overflow-x-auto border border-gray-200 leading-relaxed">{{ item.content }}</pre>
+            </div>
           </div>
+
+          <nav class="mt-12 pt-6 border-t border-gray-200 space-y-4 text-[#8f59a1] font-medium">
+            <button v-if="parentNode" class="hover:underline flex items-center" @click="selectNode(parentNode.id)">
+              <span class="mr-2">↑</span> Parent: #{{ parentNode.id }}
+            </button>
+            <div v-if="childNodes.length">
+              <span class="text-gray-400 text-[10px] font-bold uppercase tracking-widest block mb-2">Children</span>
+              <ul class="space-y-2">
+                <li v-for="child in childNodes" :key="child.id">
+                  <button @click="selectNode(child.id)" class="hover:underline">
+                    • #{{ child.id }} ({{ child.rule }})
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </nav>
         </div>
-
-        <p v-else class="text-slate-400">
-          Search or click a node to see details
-        </p>
-      </aside>
-    </div>
-  </template>
+        <div v-else class="text-center py-20 text-gray-400 italic">
+          Select a node in the graph to view details
+        </div>
+      </div>
+    </aside>
+  </div>
+</template>

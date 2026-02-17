@@ -6,12 +6,16 @@ export const LinkSchema = z.object({
   target: z.number(),
 });
 
+export const NodeDataSchema = z.object({
+  label: z.string(),
+  content: z.string(),
+});
+
 /** A single node in the derivation graph */
 export const NodeSchema = z.object({
   id: z.number(),
   rule: z.string(),
-  inputs: z.array(z.string()),
-  outputs: z.array(z.string()),
+  data: z.array(NodeDataSchema),
   children: z.array(z.number()),
 });
 
