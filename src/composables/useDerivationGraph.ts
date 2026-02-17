@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import jsonData from "../data/composeManyIntFuncs-infer.json";
+import jsonData from "../data/fix-infer.json";
 import { type DerivationGraph, DerivationGraphSchema } from "../types/types";
 
 export function useDerivationGraph() {

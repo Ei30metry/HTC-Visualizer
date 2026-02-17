@@ -16,6 +16,11 @@
   /* ---------- Resizable Sidebar Logic ---------- */
   const sidebarWidth = ref(384); // Default width
   const isResizing = ref(false);
+  const isSidepaneFullScreen = ref(false);
+
+  function toggleFullScreen() {
+    isSidepaneFullScreen.value = !isSidepaneFullScreen.value;
+  }
 
   function startResize() {
     isResizing.value = true;
@@ -204,21 +209,32 @@
 </script>
 
 <template>
-  <div class="flex w-screen h-screen overflow-hidden">
+  <div class="flex w-screen h-screen overflow-hidden relative">
     <svg
       ref="svgRef"
       class="flex-1 h-full bg-white"
     />
 
     <div
+      v-if="!isSidepaneFullScreen"
       class="w-1 cursor-col-resize hover:bg-blue-400 transition-colors bg-slate-200 z-10 flex-shrink-0"
       @mousedown="startResize"
     ></div>
 
     <aside
-      :style="{ width: sidebarWidth + 'px' }"
-      class="h-full bg-slate-50 p-4 overflow-y-auto text-sm flex-shrink-0"
+      :style="{ width: isSidepaneFullScreen ? '100vw' : sidebarWidth + 'px' }"
+      class="h-full bg-slate-50 p-4 overflow-y-auto text-sm flex-shrink-0 transition-all duration-300"
+      :class="{ 'absolute right-0 top-0 z-20 shadow-2xl': isSidepaneFullScreen }"
     >
+      <div class="flex justify-end mb-4">
+        <button
+          @click="toggleFullScreen"
+          class="px-3 py-1 bg-white border border-slate-300 hover:bg-slate-100 rounded text-xs font-semibold shadow-sm transition-colors"
+        >
+          {{ isSidepaneFullScreen ? 'Exit Full Screen' : 'Full Screen' }}
+        </button>
+      </div>
+
       <div v-if="selectedNodeId !== null" class="flex text-blue-600 justify-between mb-3">
         <button
           :disabled="selectedNodeId === 0"
