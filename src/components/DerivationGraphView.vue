@@ -99,10 +99,12 @@
       })(graph.nodes);
 
     const treeLayout = d3.tree<Node>().nodeSize([200, 120]);
-    const hierarchyRoot = treeLayout(rootNode);
+    const hierarchyRoot = treeLayout(rootNode)
+
+    const maxY = d3.max(hierarchyRoot.descendants(), d => d.y) ?? 0;
 
     nodePositions.clear();
-    hierarchyRoot.descendants().forEach(d => nodePositions.set(d.data.id, { x: d.x, y: d.y }));
+    hierarchyRoot.descendants().forEach(d => nodePositions.set(d.data.id, { x: d.x, y: maxY - d.y }));
 
     zoomLayer.append("g")
       .attr("stroke", "#d1d5db")
@@ -112,16 +114,16 @@
       .enter()
       .append("line")
       .attr("x1", d => d.source.x)
-      .attr("y1", d => d.source.y)
+      .attr("y1", d => maxY - d.source.y)
       .attr("x2", d => d.target.x)
-      .attr("y2", d => d.target.y);
+      .attr("y2", d => maxY - d.target.y);
 
     const nodes = zoomLayer.append("g")
       .selectAll("g")
       .data(hierarchyRoot.descendants())
       .enter()
       .append("g")
-      .attr("transform", d => `translate(${d.x}, ${d.y})`)
+      .attr("transform", d => `translate(${d.x}, ${maxY - d.y})`)
       .on("click", (_, d) => selectNode(d.data.id));
 
     nodes.append("rect")
@@ -213,11 +215,22 @@
             Node #{{ selectedNode.id }}
           </h2>
 
-          <div class="mb-8">
+          <div class="mb-6">
             <div class="bg-[#f5f5f5] p-4 rounded border border-gray-200">
-              <span class="text-[10px] font-bold text-gray-400 tracking-widest block mb-2">Rule Identifier</span>
+              <span class="text-[10px] font-bold text-gray-400 tracking-widest block mb-2 uppercase">Rule Identifier</span>
               <code class="text-[#5e5184] font-mono font-bold">{{ selectedNode.rule }}</code>
             </div>
+          </div>
+
+          <div class="mb-8">
+            <span class="text-[10px] font-bold text-gray-400 tracking-widest block mb-2 uppercase">Visualization</span>
+            <div class="bg-white border border-gray-200 rounded p-4 flex justify-center shadow-sm">
+              <img
+                src="../src/data/IXXArg.svg"
+                alt="Rule Diagram"
+                class="max-w-full h-auto"
+              />
+              </div>
           </div>
 
           <div v-if="selectedNode.data.length" class="space-y-8">
@@ -225,7 +238,7 @@
               <h3 class="text-xs font-bold text-[#5e5184] border-b border-gray-100 pb-1 mb-3 tracking-wider">
                 {{ item.label }}
               </h3>
-              <pre class="p-4 bg-[#f8f8f8] rounded text-sm font-mono overflow-x-auto border border-gray-200 leading-relaxed">{{ item.content }}</pre>
+              <pre class="p-4 bg-[#f8f8f8] rounded text-sm font-mono overflow-x-auto border border-gray-200 leading-relaxed whitespace-pre-wrap">{{ item.content }}</pre>
             </div>
           </div>
 
@@ -245,6 +258,7 @@
             </div>
           </nav>
         </div>
+
         <div v-else class="text-center py-20 text-gray-400 italic">
           Select a node in the graph to view details
         </div>

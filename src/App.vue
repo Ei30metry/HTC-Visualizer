@@ -3,6 +3,7 @@ import { useDerivationGraph } from "./composables/useDerivationGraph";
 import DerivationGraphView from "./components/DerivationGraphView.vue";
 
 const { data, error } = useDerivationGraph();
+
 </script>
 
 <template>
