@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import * as d3 from "d3";
-  import { onMounted, onUnmounted, ref, watch, computed } from "vue";
+  import { onMounted, onUnmounted, ref, watch, computed, watchEffect } from "vue";
   import type { DerivationGraph, Node } from "../types/types";
 
   const props = defineProps<{ graph: DerivationGraph }>();
@@ -16,6 +16,44 @@
   const sidebarWidth = ref(384);
   const isResizing = ref(false);
   const isSidepaneFullScreen = ref(false);
+
+  function isUpper(str: string): boolean {
+    let char = str[0];
+    return char === char.toUpperCase() &&
+           char !== char.toLowerCase();
+  }
+
+  function encodeOttIdentifier(name: string): string {
+    return name
+      .split("")
+      .map((c) => {
+        switch (c) {
+          case "/":  return "slash_";
+          case "\\": return "bslash_";
+          case "-":  return "dash_";
+          case "|":  return "pipe_";
+          case ">":  return "gt_";
+          case "<":  return "lt_";
+          case ":":  return "colon_";
+          case "~":  return "tilde_";
+          case "*":  return "star_";
+          case "#":  return "hash_";
+          case "@":  return "at_";
+          case "=":  return "eq_";
+          case "_":  return "u_";
+          default:
+            if (isUpper(c)) {
+              return "up_" + c;
+            }
+            return c;
+        }
+      })
+      .join("");
+  }
+
+  function ruleToFileName(ruleName: string) {
+    return `${ruleName.replace('-', 'XX')}.svg`
+  }
 
   function toggleFullScreen() {
     isSidepaneFullScreen.value = !isSidepaneFullScreen.value;
@@ -226,17 +264,28 @@
             <span class="text-[10px] font-bold text-gray-400 tracking-widest block mb-2 uppercase">Visualization</span>
             <div class="bg-white border border-gray-200 rounded p-4 flex justify-center shadow-sm">
               <img
-                src="../src/data/IXXArg.svg"
+                v-if="!selectedNode.rule.toLowerCase().includes('impl')"
+                :src="'svgs/rules/' + ruleToFileName(selectedNode.rule)"
                 alt="Rule Diagram"
                 class="max-w-full h-auto"
               />
+              <p v-else>
+                Implementation Detail
+              </p>
               </div>
           </div>
 
           <div v-if="selectedNode.data.length" class="space-y-8">
             <div v-for="(item, index) in selectedNode.data" :key="index">
+              {{ console.log('encoded Item Label:', encodeOttIdentifier(item.label)) || '' }}
+            </div>
+            <div v-for="(item, index) in selectedNode.data" :key="index">
               <h3 class="text-xs font-bold text-[#5e5184] border-b border-gray-100 pb-1 mb-3 tracking-wider">
-                {{ item.label }}
+                <img
+                  :src='`/svgs/idents/${encodeOttIdentifier(item.label)}.svg`'
+                  alt="Subject"
+                  class="h-5 w-auto object-contain"
+                />
               </h3>
               <pre class="p-4 bg-[#f8f8f8] rounded text-sm font-mono overflow-x-auto border border-gray-200 leading-relaxed whitespace-pre-wrap">{{ item.content }}</pre>
             </div>
